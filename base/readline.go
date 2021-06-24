@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2018-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	// "os/signal"
 
 	"github.com/peterh/liner"
 )
@@ -33,13 +32,13 @@ type Readline interface {
 
 // -------------------- BufReadline --------------------
 
+// a Readline implementation that reads from a *bufio.Reader
 type BufReadline struct {
-	in  *bufio.Reader
-	out io.Writer
+	in *bufio.Reader
 }
 
-func MakeBufReadline(in *bufio.Reader, out io.Writer) BufReadline {
-	return BufReadline{in, out}
+func MakeBufReadline(in *bufio.Reader) BufReadline {
+	return BufReadline{in}
 }
 
 var (
@@ -60,7 +59,9 @@ type TtyReadline struct {
 }
 
 func MakeTtyReadline(historyfile string) (TtyReadline, error) {
-	tty := TtyReadline{liner.NewLiner()}
+	line := liner.NewLiner()
+	line.SetTabCompletionStyle(liner.TabPrints)
+	tty := TtyReadline{line}
 
 	/*
 		go func() {

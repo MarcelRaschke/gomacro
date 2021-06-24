@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -17,17 +17,17 @@
 package fast
 
 import (
-	"github.com/cosmos72/gomacro/base/reflect"
 	"go/ast"
 	r "reflect"
+
+	"github.com/cosmos72/gomacro/base/reflect"
 
 	xr "github.com/cosmos72/gomacro/xreflect"
 )
 
 // Convert compiles a type conversion expression
 func (c *Comp) Convert(node ast.Expr, t xr.Type) *Expr {
-	e := c.Expr1(node, nil)
-
+	e := c.expr1(node, nil)
 	return c.convert(e, t, node)
 }
 
@@ -43,7 +43,7 @@ func (c *Comp) convert(e *Expr, t xr.Type, nodeOpt ast.Expr) *Expr {
 		if e.Const() {
 			return c.exprValue(t, e.Value)
 		} else {
-			return exprFun(t, e.Fun)
+			return c.Jit.Identity(exprFun(t, e.Fun), e)
 		}
 	} else if e.Type == nil && reflect.IsNillableKind(t.Kind()) {
 		e.Type = t
@@ -55,104 +55,104 @@ func (c *Comp) convert(e *Expr, t xr.Type, nodeOpt ast.Expr) *Expr {
 	}
 	rtype := t.ReflectType()
 	if e.Const() {
-		val := convert(r.ValueOf(e.Value), rtype).Interface()
+		val := convert(xr.ValueOf(e.Value), rtype).Interface()
 		return c.exprValue(t, val)
 	}
 	fun := e.AsX1()
 	var ret I
 	switch t.Kind() {
-	case r.Bool:
+	case xr.Bool:
 		ret = func(env *Env) bool {
 			val := convert(fun(env), rtype)
 			return val.Bool()
 		}
-	case r.Int:
+	case xr.Int:
 		ret = func(env *Env) int {
 			val := convert(fun(env), rtype)
 			return int(val.Int())
 		}
-	case r.Int8:
+	case xr.Int8:
 		ret = func(env *Env) int8 {
 			val := convert(fun(env), rtype)
 			return int8(val.Int())
 		}
-	case r.Int16:
+	case xr.Int16:
 		ret = func(env *Env) int16 {
 			val := convert(fun(env), rtype)
 			return int16(val.Int())
 		}
-	case r.Int32:
+	case xr.Int32:
 		ret = func(env *Env) int32 {
 			val := convert(fun(env), rtype)
 			return int32(val.Int())
 		}
-	case r.Int64:
+	case xr.Int64:
 		ret = func(env *Env) int64 {
 			val := convert(fun(env), rtype)
 			return val.Int()
 		}
-	case r.Uint:
+	case xr.Uint:
 		ret = func(env *Env) uint {
 			val := convert(fun(env), rtype)
 			return uint(val.Uint())
 		}
-	case r.Uint8:
+	case xr.Uint8:
 		ret = func(env *Env) uint8 {
 			val := convert(fun(env), rtype)
 			return uint8(val.Uint())
 		}
-	case r.Uint16:
+	case xr.Uint16:
 		ret = func(env *Env) uint16 {
 			val := convert(fun(env), rtype)
 			return uint16(val.Uint())
 		}
-	case r.Uint32:
+	case xr.Uint32:
 		ret = func(env *Env) uint32 {
 			val := convert(fun(env), rtype)
 			return uint32(val.Uint())
 		}
-	case r.Uint64:
+	case xr.Uint64:
 		ret = func(env *Env) uint64 {
 			val := convert(fun(env), rtype)
 			return val.Uint()
 		}
-	case r.Uintptr:
+	case xr.Uintptr:
 		ret = func(env *Env) uintptr {
 			val := convert(fun(env), rtype)
 			return uintptr(val.Uint())
 		}
-	case r.Float32:
+	case xr.Float32:
 		ret = func(env *Env) float32 {
 			val := convert(fun(env), rtype)
 			return float32(val.Float())
 		}
-	case r.Float64:
+	case xr.Float64:
 		ret = func(env *Env) float64 {
 			val := convert(fun(env), rtype)
 			return val.Float()
 		}
-	case r.Complex64:
+	case xr.Complex64:
 		ret = func(env *Env) complex64 {
 			val := convert(fun(env), rtype)
 			return complex64(val.Complex())
 		}
-	case r.Complex128:
+	case xr.Complex128:
 		ret = func(env *Env) complex128 {
 			val := convert(fun(env), rtype)
 			return val.Complex()
 		}
-	case r.String:
+	case xr.String:
 		ret = func(env *Env) string {
 			val := convert(fun(env), rtype)
 			return val.String()
 		}
 	default:
 		if conv := c.Converter(e.Type, t); conv != nil {
-			ret = func(env *Env) r.Value {
+			ret = func(env *Env) xr.Value {
 				return conv(fun(env))
 			}
 		} else {
-			ret = func(env *Env) r.Value {
+			ret = func(env *Env) xr.Value {
 				return fun(env)
 			}
 		}
@@ -160,13 +160,15 @@ func (c *Comp) convert(e *Expr, t xr.Type, nodeOpt ast.Expr) *Expr {
 	eret := exprFun(t, ret)
 	if e.Const() {
 		eret.EvalConst(COptKeepUntyped)
+	} else {
+		eret = c.Jit.Cast(eret, t, e)
 	}
 	return eret
 }
 
 // Converter returns a function that converts reflect.Value from tin to tout
 // also supports conversion from interpreted types to interfaces
-func (c *Comp) Converter(tin, tout xr.Type) func(r.Value) r.Value {
+func (c *Comp) Converter(tin, tout xr.Type) func(xr.Value) xr.Value {
 	if !tin.ConvertibleTo(tout) {
 		c.Errorf("cannot convert from <%v> to <%v>", tin, tout)
 	}
@@ -178,18 +180,18 @@ func (c *Comp) Converter(tin, tout xr.Type) func(r.Value) r.Value {
 	case rtin.ConvertibleTo(rtout):
 		// most conversions, including from compiled type to compiled interface
 		if rtin.Kind() != r.Interface {
-			return func(obj r.Value) r.Value {
+			return func(obj xr.Value) xr.Value {
 				return obj.Convert(rtout)
 			}
 		}
 		// extract objects wrapped in proxies (if any)
 		g := c.CompGlobals
-		return func(obj r.Value) r.Value {
+		return func(obj xr.Value) xr.Value {
 			obj, _ = g.extractFromProxy(obj)
 			if obj.IsValid() {
 				return obj.Convert(rtout)
 			} else {
-				return r.Zero(rtout)
+				return xr.ZeroR(rtout)
 			}
 		}
 	case xr.IsEmulatedInterface(tout):
@@ -210,9 +212,9 @@ func (c *Comp) Converter(tin, tout xr.Type) func(r.Value) r.Value {
 }
 
 // conversion from forward-declared type
-func (c *Comp) converterFromForward(tin, tout xr.Type) func(r.Value) r.Value {
+func (c *Comp) converterFromForward(tin, tout xr.Type) func(xr.Value) xr.Value {
 	rtout := tout.ReflectType()
-	return func(val r.Value) r.Value {
+	return func(val xr.Value) xr.Value {
 		val = val.Elem()
 		if val.Type() != rtout {
 			val = val.Convert(rtout)
@@ -223,7 +225,7 @@ func (c *Comp) converterFromForward(tin, tout xr.Type) func(r.Value) r.Value {
 
 // conversion between compatible types.
 // also implements conversion from xr.Forward.
-func convert(v r.Value, rtout r.Type) r.Value {
+func convert(v xr.Value, rtout r.Type) xr.Value {
 	if v.Kind() == r.Interface {
 		v = v.Elem()
 	}

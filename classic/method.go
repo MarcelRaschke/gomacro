@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -59,7 +59,7 @@ func (ir *ThreadGlobals) registerMethod(recvType r.Type, name string, typ r.Type
 func (ir *ThreadGlobals) ObjMethodByName(obj r.Value, name string) r.Value {
 	// search for methods known to the compiler
 	val := obj.MethodByName(name)
-	if val == Nil {
+	if val == NilR {
 		// search for methods known to the intepreter
 		t := obj.Type()
 		if method, ok := ir.AllMethods[t][name]; ok {

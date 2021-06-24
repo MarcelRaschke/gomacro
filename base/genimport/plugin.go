@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -18,38 +18,75 @@ package genimport
 
 import (
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	r "reflect"
 
 	"github.com/cosmos72/gomacro/base/paths"
 )
 
-func compilePlugin(o *Output, filepath string, stdout io.Writer, stderr io.Writer) string {
+func chooseGoCmd() string {
+	gocmd := "go"
+
+	// prefer to use $GOROOT/bin/go, where $GOROOT is the Go installation that compiled gomacro
+	if gorootdir := paths.GoRootDir; gorootdir != "" {
+		gocmdabs := filepath.Join(gorootdir, "bin", gocmd)
+		info, err := os.Stat(gocmdabs)
+		if err == nil && !info.IsDir() && info.Size() != 0 && info.Mode()&0111 != 0 {
+			gocmd = gocmdabs
+		}
+	}
+	return gocmd
+}
+
+func compilePlugin(o *Output, filePath string, enableModule bool, stdout io.Writer, stderr io.Writer) string {
 	gosrcdir := paths.GoSrcDir
 	gosrclen := len(gosrcdir)
-	filelen := len(filepath)
-	if filelen < gosrclen || filepath[0:gosrclen] != gosrcdir {
-		o.Errorf("source %q is in unsupported directory, cannot compile it: should be inside %q", filepath, gosrcdir)
+	filelen := len(filePath)
+	if filelen < gosrclen || filePath[0:gosrclen] != gosrcdir {
+		o.Errorf("source %q is in unsupported directory, cannot compile it: should be inside %q", filePath, gosrcdir)
 	}
+	gocmd := chooseGoCmd()
 
-	cmd := exec.Command("go", "build", "-buildmode=plugin")
-	cmd.Dir = paths.DirName(filepath)
+	cmd := exec.Command(gocmd, "build", "-buildmode=plugin")
+	cmd.Dir = paths.DirName(filePath)
+	cmd.Env = environForCompiler(enableModule)
 	cmd.Stdin = nil
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	o.Debugf("compiling %q ...", filepath)
+	o.Debugf("compiling %q ...", filePath)
 	err := cmd.Run()
 	if err != nil {
-		o.Errorf("error executing \"go build -buildmode=plugin\" in directory %q: %v", cmd.Dir, err)
+		o.Errorf("error executing \"%s build -buildmode=plugin\" in directory %q: %v", gocmd, cmd.Dir, err)
 	}
 
-	dirname := paths.RemoveLastByte(paths.DirName(filepath))
-	// go build uses innermost directory name as shared object name,
-	// i.e.	foo/bar/main.go is compiled to foo/bar/bar.so
-	filename := paths.FileName(dirname)
+	dir := paths.RemoveLastByte(paths.DirName(filePath))
 
-	return paths.Subdir(dirname, filename+".so")
+	return findSharedObject(o, dir)
+}
+
+func findSharedObject(o *Output, dir string) string {
+	var ret string
+	for _, info := range listDir(o, dir) {
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		name := info.Name()
+		n := len(name)
+		if n <= 3 || name[n-3:n] != ".so" {
+			continue
+		}
+		if ret != "" {
+			o.Errorf("multiple shared objects found in directory %q - do not know which one to load: %q or %q ?", dir, ret, name)
+		}
+		ret = name
+	}
+	if ret == "" {
+		o.Errorf("no shared objects found in directory %q - compiler error?", dir)
+	}
+	return paths.Subdir(dir, ret)
 }
 
 func (imp *Importer) loadPluginSymbol(soname string, symbolName string) interface{} {
@@ -61,8 +98,8 @@ func (imp *Importer) loadPluginSymbol(soname string, symbolName string) interfac
 	//   or in Globals.Importer.PluginOpen
 
 	o := imp.output
-	if !imp.setPluginOpen() {
-		o.Errorf("gomacro compiled without support to load plugins - requires Go 1.8+ and Linux - cannot import packages at runtime")
+	if !imp.havePluginOpen() {
+		o.Errorf("gomacro compiled without support to load plugins - requires Go 1.8+ and Linux or Mac OS X - cannot import packages at runtime")
 	}
 	if len(soname) == 0 || len(symbolName) == 0 {
 		// caller is just checking whether PluginOpen() is available

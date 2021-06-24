@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -18,7 +18,6 @@ package fast
 
 import (
 	"go/constant"
-	r "reflect"
 
 	"github.com/cosmos72/gomacro/base/output"
 	"github.com/cosmos72/gomacro/base/reflect"
@@ -45,7 +44,10 @@ func exprValue(t xr.Type, value I) *Expr {
 	if t == nil {
 		output.Errorf("internal error! exprValue() value = %v invoked with type = nil", value)
 	}
-	return &Expr{Lit: Lit{Type: t, Value: value}, EFlags: EFlag4Value(value)}
+	return &Expr{
+		Lit:    Lit{Type: t, Value: value},
+		EFlags: EFlag4Value(value),
+	}
 }
 
 func exprLit(lit Lit, sym *Symbol) *Expr {
@@ -56,11 +58,11 @@ func exprFun(t xr.Type, fun I) *Expr {
 	return &Expr{Lit: Lit{Type: t}, Fun: fun}
 }
 
-func exprX1(t xr.Type, fun func(env *Env) r.Value) *Expr {
+func exprX1(t xr.Type, fun func(env *Env) xr.Value) *Expr {
 	return &Expr{Lit: Lit{Type: t}, Fun: fun}
 }
 
-func exprXV(types []xr.Type, fun func(env *Env) (r.Value, []r.Value)) *Expr {
+func exprXV(types []xr.Type, fun func(env *Env) (xr.Value, []xr.Value)) *Expr {
 	if len(types) == 1 {
 		return &Expr{Lit: Lit{Type: types[0]}, Fun: fun}
 	} else {
@@ -100,7 +102,7 @@ func (expr *Expr) EvalConst(opts CompileOptions) I {
 		return nil
 	}
 	var value I
-	if ret != reflect.Nil {
+	if ret.IsValid() {
 		value = ret.Interface()
 	}
 	expr.Value = value

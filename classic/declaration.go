@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -193,7 +193,7 @@ func (env *Env) defineConstVarOrFunc(name string, t r.Type, value r.Value, const
 		env.Binds.Set(name, value)
 	} else {
 		addr := r.New(t)
-		value = env.assignPlace(placeType{addr.Elem(), Nil}, token.ASSIGN, value)
+		value = env.assignPlace(placeType{addr.Elem(), NilR}, token.ASSIGN, value)
 		env.Binds.Set(name, addr.Elem())
 	}
 	// Debugf("defineConstVarOrFunc() added %#v to %#v", name, env.Binds)

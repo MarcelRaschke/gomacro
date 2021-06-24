@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2018-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -21,7 +21,6 @@ import (
 	"go/token"
 	"math/big"
 	r "reflect"
-	"unsafe"
 
 	"github.com/cosmos72/gomacro/base/output"
 	"github.com/cosmos72/gomacro/base/reflect"
@@ -92,7 +91,8 @@ again:
 	case r.Interface:
 		// this can happen too... for example in "var foo interface{} = 7"
 		// and it requires to convert the untyped constant to its default type.
-		// obviously, untyped constants can only implement empty interfaces
+		// Obviously, untyped constants can only implement empty interfaces
+		// (TODO: unless CTI generics are enabled - they add methods to basic types)
 		if t.NumMethod() == 0 {
 			t = untyp.DefaultType()
 			goto again
@@ -177,22 +177,25 @@ func (untyp *Lit) BigInt() *big.Int {
 		ret = b.SetInt64(i)
 	} else if n, exact := untyp.Uint64(); exact {
 		ret = b.SetUint64(n)
-	} else if i := untyp.rawBigInt(); i != nil {
-		ret = b.Set(i)
-	} else if r := untyp.rawBigRat(); r != nil {
-		if !r.IsInt() {
-			return nil
-		}
-		ret = b.Set(r.Num())
-	} else if f := untyp.rawBigFloat(); f != nil {
-		if !f.IsInt() {
-			return nil
-		}
-		if i, acc := f.Int(&b); acc == big.Exact {
-			if i != &b {
-				b.Set(i)
+	} else {
+		i, r, f := untyp.rawBignum()
+		if i != nil {
+			ret = b.Set(i)
+		} else if r != nil {
+			if !r.IsInt() {
+				return nil
 			}
-			ret = &b
+			ret = b.Set(r.Num())
+		} else if f != nil {
+			if !f.IsInt() {
+				return nil
+			}
+			if i, acc := f.Int(&b); acc == big.Exact {
+				if i != &b {
+					b.Set(i)
+				}
+				ret = &b
+			}
 		}
 	}
 	if ret == nil {
@@ -211,18 +214,20 @@ func (untyp *Lit) BigRat() *big.Rat {
 
 	if i, exact := untyp.Int64(); exact {
 		ret = b.SetInt64(i)
-	} else if i := untyp.rawBigInt(); i != nil {
-		ret = b.SetInt(i)
-	} else if r := untyp.rawBigRat(); r != nil {
-		ret = b.Set(r)
-	} else if f := untyp.rawBigFloat(); f != nil {
-		if f.IsInt() {
-			if i, acc := f.Int(nil); acc == big.Exact {
-				ret = b.SetInt(i)
+	} else {
+		i, r, f := untyp.rawBignum()
+		if i != nil {
+			ret = b.SetInt(i)
+		} else if r != nil {
+			ret = b.Set(r)
+		} else if f != nil {
+			if f.IsInt() {
+				if i, acc := f.Int(nil); acc == big.Exact {
+					ret = b.SetInt(i)
+				}
 			}
 		}
 	}
-
 	if ret == nil {
 		// no luck... try to go through string representation
 		s := untyp.Val.ExactString()
@@ -244,15 +249,18 @@ func (untyp *Lit) BigFloat() *big.Float {
 	} else if f, exact := untyp.Float64(); exact {
 		ret = b.SetFloat64(f)
 		// Debugf("untyped.Lit.BigFloat(): converted float64 %v to *big.Float %v", f, b)
-	} else if i := untyp.rawBigInt(); i != nil {
-		ret = b.SetInt(i)
-		// Debugf("untyped.Lit.BigFloat(): converted *big.Int %v to *big.Float %v", *i, b)
-	} else if r := untyp.rawBigRat(); r != nil {
-		ret = b.SetRat(r)
-		// Debugf("untyped.Lit.BigFloat(): converted *big.Rat %v to *big.Float %v", *r, b)
-	} else if f := untyp.rawBigFloat(); f != nil {
-		ret = b.Set(f)
-		// Debugf("untyped.Lit.BigFloat(): converted *big.Float %v to *big.Float %v", *f, b)
+	} else {
+		i, r, f := untyp.rawBignum()
+		if i != nil {
+			ret = b.SetInt(i)
+			// Debugf("untyped.Lit.BigFloat(): converted *big.Int %v to *big.Float %v", *i, b)
+		} else if r != nil {
+			ret = b.SetRat(r)
+			// Debugf("untyped.Lit.BigFloat(): converted *big.Rat %v to *big.Float %v", *r, b)
+		} else if f != nil {
+			ret = b.Set(f)
+			// Debugf("untyped.Lit.BigFloat(): converted *big.Float %v to *big.Float %v", *f, b)
+		}
 	}
 
 	if ret == nil {
@@ -295,46 +303,23 @@ func (untyp *Lit) Float64() (float64, bool) {
 	return 0, false
 }
 
-func (untyp *Lit) rawBigInt() *big.Int {
-	if untyp.Val.Kind() != constant.Int {
-		return nil
+// attempt to unwrap an untyped literal. Returns at most one of *big.Int, *big.Rat, *big.Float
+func (untyp *Lit) rawBignum() (*big.Int, *big.Rat, *big.Float) {
+	k := untyp.Val.Kind()
+	if k != constant.Int && k != constant.Float {
+		return nil, nil, nil
 	}
-	v := r.ValueOf(untyp.Val)
-	if v.Kind() == r.Struct {
-		v = v.Field(0)
+	x := constant.Val(untyp.Val) // requires Go 1.13
+	switch x := x.(type) {
+	case *big.Int:
+		return x, nil, nil
+	case *big.Rat:
+		return nil, x, nil
+	case *big.Float:
+		return nil, nil, x
+	default:
+		return nil, nil, nil
 	}
-	if v.Type() != r.TypeOf((*big.Int)(nil)) {
-		return nil
-	}
-	return (*big.Int)(unsafe.Pointer(v.Pointer()))
-}
-
-func (untyp *Lit) rawBigRat() *big.Rat {
-	if untyp.Val.Kind() != constant.Float {
-		return nil
-	}
-	v := r.ValueOf(untyp.Val)
-	if v.Kind() == r.Struct {
-		v = v.Field(0)
-	}
-	if v.Type() != r.TypeOf((*big.Rat)(nil)) {
-		return nil
-	}
-	return (*big.Rat)(unsafe.Pointer(v.Pointer()))
-}
-
-func (untyp *Lit) rawBigFloat() *big.Float {
-	if untyp.Val.Kind() != constant.Float {
-		return nil
-	}
-	v := r.ValueOf(untyp.Val)
-	if v.Kind() == r.Struct {
-		v = v.Field(0)
-	}
-	if v.Type() != r.TypeOf((*big.Float)(nil)) {
-		return nil
-	}
-	return (*big.Float)(unsafe.Pointer(v.Pointer()))
 }
 
 // ================================= DefaultType =================================
@@ -403,7 +388,7 @@ func (untyp *Lit) extractNumber(src constant.Value, t xr.Type) interface{} {
 // ConvertLiteralCheckOverflow converts a literal to type t and returns the converted value.
 // panics if the conversion overflows the given type
 func ConvertLiteralCheckOverflow(src interface{}, to xr.Type) interface{} {
-	v := r.ValueOf(src)
+	v := xr.ValueOf(src)
 	rto := to.ReflectType()
 	vto := reflect.ConvertValue(v, rto)
 
@@ -415,7 +400,7 @@ func ConvertLiteralCheckOverflow(src interface{}, to xr.Type) interface{} {
 	if cto == r.Int || cto == r.Uint {
 		if c == r.Float64 || c == r.Complex128 {
 			// float-to-integer conversion. check for truncation
-			t1 := reflect.Type(v)
+			t1 := reflect.ValueType(v)
 			vback := reflect.ConvertValue(vto, t1)
 			if src != vback.Interface() {
 				output.Errorf("constant %v truncated to %v", src, to)
@@ -423,7 +408,7 @@ func ConvertLiteralCheckOverflow(src interface{}, to xr.Type) interface{} {
 			}
 		} else {
 			// integer-to-integer conversion. convert back and compare the interfaces for overflows
-			t1 := reflect.Type(v)
+			t1 := reflect.ValueType(v)
 			vback := vto.Convert(t1)
 			if src != vback.Interface() {
 				output.Errorf("constant %v overflows <%v>", src, to)

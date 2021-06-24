@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2018-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -18,7 +18,6 @@ package debug
 
 import (
 	"go/token"
-	"reflect"
 	"runtime/debug"
 
 	"github.com/cosmos72/gomacro/base"
@@ -126,7 +125,7 @@ func (d *Debugger) Repl() DebugOp {
 	return op
 }
 
-func (d *Debugger) Eval(src string) ([]reflect.Value, []xreflect.Type) {
+func (d *Debugger) Eval(src string) ([]xreflect.Value, []xreflect.Type) {
 	g := d.globals
 	trap := g.Options&base.OptTrapPanic != 0
 

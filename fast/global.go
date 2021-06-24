@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -24,10 +24,9 @@ import (
 	r "reflect"
 	"sort"
 
-	"github.com/cosmos72/gomacro/base/output"
-
 	"github.com/cosmos72/gomacro/atomic"
-	. "github.com/cosmos72/gomacro/base"
+	"github.com/cosmos72/gomacro/base"
+	"github.com/cosmos72/gomacro/base/output"
 	"github.com/cosmos72/gomacro/base/untyped"
 	xr "github.com/cosmos72/gomacro/xreflect"
 )
@@ -61,8 +60,8 @@ type Lit struct {
 	// when Lit is embedded in other structs that represent non-constant expressions,
 	// Value is usually nil
 	//
-	// when Lit is embedded in a Bind with class == TemplateFuncBind,
-	// Value is the *TemplateFunc containing the function source code
+	// when Lit is embedded in a Bind with class == GenericFuncBind,
+	// Value is the *GenericFunc containing the function source code
 	// to be specialized and compiled upon instantiation.
 	Value I
 }
@@ -83,12 +82,12 @@ func (lit *Lit) UntypedKind() untyped.Kind {
 	}
 }
 
-func (lit *Lit) ConstValue() r.Value {
-	v := r.ValueOf(lit.Value)
+func (lit *Lit) ConstValue() xr.Value {
+	v := xr.ValueOf(lit.Value)
 	if lit.Type != nil {
 		rtype := lit.Type.ReflectType()
 		if !v.IsValid() {
-			v = r.Zero(rtype)
+			v = xr.ZeroR(rtype)
 		} else if !lit.Untyped() && v.Type() != rtype {
 			v = convert(v, rtype)
 		}
@@ -141,6 +140,7 @@ type Expr struct {
 	Types []xr.Type // in case the expression produces multiple values. if nil, use Lit.Type.
 	Fun   I         // function that evaluates the expression at runtime.
 	Sym   *Symbol   // in case the expression is a symbol
+	Jit   jitExpr   // expression to jit-compile, or nil if not supported
 	EFlags
 }
 
@@ -207,7 +207,7 @@ type Function struct {
 
 // Macro represents a macro in the fast interpreter
 type Macro struct {
-	closure func(args []r.Value) (results []r.Value)
+	closure func(args []xr.Value) (results []xr.Value)
 	argNum  int
 }
 
@@ -223,8 +223,8 @@ const (
 	FuncBind
 	VarBind
 	IntBind
-	TemplateFuncBind
-	TemplateTypeBind
+	GenericFuncBind
+	GenericTypeBind
 )
 
 func (class BindClass) String() string {
@@ -237,10 +237,10 @@ func (class BindClass) String() string {
 		return "var"
 	case IntBind:
 		return "intvar"
-	case TemplateFuncBind:
-		return "template func"
-	case TemplateTypeBind:
-		return "template type"
+	case GenericFuncBind:
+		return "generic func"
+	case GenericTypeBind:
+		return "generic type"
 	default:
 		return fmt.Sprintf("unknown%d", uint(class))
 	}
@@ -306,27 +306,33 @@ func (bind *Bind) Const() bool {
 
 // return bind value for constant binds.
 // if bind is untyped constant, returns UntypedLit wrapped in reflect.Value
-func (bind *Bind) ConstValue() r.Value {
+func (bind *Bind) ConstValue() xr.Value {
 	if !bind.Const() {
-		return Nil
+		return xr.Value{}
 	}
 	return bind.Lit.ConstValue()
 }
 
 // return bind value.
 // if bind is untyped constant, returns UntypedLit wrapped in reflect.Value
-func (bind *Bind) RuntimeValue(env *Env) r.Value {
-	var v r.Value
+func (bind *Bind) RuntimeValue(g *CompGlobals, env *Env) xr.Value {
+	var v xr.Value
 	switch bind.Desc.Class() {
-	case ConstBind, TemplateFuncBind, TemplateTypeBind:
+	case ConstBind:
 		v = bind.Lit.ConstValue()
 	case IntBind:
-		expr := bind.intExpr(&env.Run.Stringer)
+		expr := bind.intExpr(g)
 		// no need for Interp.RunExpr(): expr is a local variable,
 		// not a statement or a function call that may be stopped by the debugger
 		v = expr.AsX1()(env)
 	case VarBind, FuncBind:
 		v = env.Vals[bind.Desc.Index()]
+	case GenericFuncBind, GenericTypeBind:
+		if GENERICS_V1_CXX() || GENERICS_V2_CTI() {
+			v = bind.Lit.ConstValue()
+			break
+		}
+		fallthrough
 	default:
 		output.Errorf("Symbol %q: unsupported class: %v", bind.Name, bind.Desc.Class())
 	}
@@ -365,6 +371,10 @@ func (sym *Symbol) AsVar(opt PlaceOption) *Var {
 	return sym.Bind.AsVar(sym.Upn, opt)
 }
 
+func (sym *Symbol) String() string {
+	return fmt.Sprintf("Symbol{%v %q %v idx=%v upn=%v}", sym.Desc.Class(), sym.Name, sym.Type, sym.Desc.Index(), sym.Upn)
+}
+
 // Var represents a settable variable
 type Var struct {
 	// when Var is embedded in other structs that represent non-identifiers,
@@ -390,6 +400,10 @@ func (va *Var) AsPlace() *Place {
 	return &Place{Var: *va}
 }
 
+func (va *Var) String() string {
+	return fmt.Sprintf("Var{%v %q %v idx=%v upn=%v}", va.Desc.Class(), va.Name, va.Type, va.Desc.Index(), va.Upn)
+}
+
 // Place represents a settable place or, equivalently, its address
 type Place struct {
 	Var
@@ -397,14 +411,14 @@ type Place struct {
 	// For non-variables, returns a settable and addressable reflect.Value: the place itself.
 	// For map[key], Fun returns the map itself (which may NOT be settable).
 	// Call Fun only once, it may have side effects!
-	Fun func(*Env) r.Value
+	Fun func(*Env) xr.Value
 	// Addr is nil for variables.
 	// For non-variables, it will return the address of the place.
 	// For map[key], it is nil since map[key] is not addressable
 	// Call Addr only once, it may have side effects!
-	Addr func(*Env) r.Value
+	Addr func(*Env) xr.Value
 	// used only for map[key], returns key. call it only once, it may have side effects!
-	MapKey  func(*Env) r.Value
+	MapKey  func(*Env) xr.Value
 	MapType xr.Type
 }
 
@@ -532,7 +546,7 @@ type Debugger interface {
 type IrGlobals struct {
 	gls  map[uintptr]*Run
 	lock atomic.SpinLock
-	Globals
+	base.Globals
 }
 
 // Run contains per-goroutine interpreter runtime bookeeping information
@@ -540,14 +554,14 @@ type Run struct {
 	*IrGlobals
 	goid         uintptr // owner goroutine id
 	Interrupt    Stmt
-	Signals      Signals // set by defer, return, breakpoint, debugger and Run.interrupt(os.Signal)
+	Signals      base.Signals // set by defer, return, breakpoint, debugger and Run.interrupt(os.Signal)
 	ExecFlags    ExecFlags
 	CurrEnv      *Env        // caller of current function. used ONLY at function entry to build call stack
 	InstallDefer func()      // defer function to be installed
 	DeferOfFun   *Env        // function whose defer are running
 	PanicFun     *Env        // the currently panicking function
 	Panic        interface{} // current panic. needed for recover()
-	CmdOpt       CmdOpt
+	CmdOpt       base.CmdOpt
 	Debugger     Debugger
 	DebugDepth   int // depth of function to debug with single-step
 	PoolSize     int
@@ -562,11 +576,12 @@ type CompGlobals struct {
 	interf2proxy map[r.Type]r.Type  // interface -> proxy
 	proxy2interf map[r.Type]xr.Type // proxy -> interface
 	Prompt       string
+	Jit          *Jit
 }
 
 func (cg *CompGlobals) CompileOptions() CompileOptions {
 	var opts CompileOptions
-	if cg.Options&OptKeepUntyped != 0 {
+	if cg.Options&base.OptKeepUntyped != 0 {
 		opts = COptKeepUntyped
 	}
 	return opts
@@ -607,7 +622,7 @@ type Comp struct {
 // ================================= Env =================================
 
 type EnvBinds struct {
-	Vals []r.Value
+	Vals []xr.Value
 	Ints []uint64
 }
 

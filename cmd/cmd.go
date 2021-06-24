@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -25,10 +25,12 @@ import (
 	"strings"
 
 	. "github.com/cosmos72/gomacro/base"
+	"github.com/cosmos72/gomacro/base/genimport"
 	"github.com/cosmos72/gomacro/base/inspect"
 	"github.com/cosmos72/gomacro/base/paths"
 	"github.com/cosmos72/gomacro/fast"
 	"github.com/cosmos72/gomacro/fast/debug"
+	"github.com/cosmos72/gomacro/go/etoken"
 )
 
 type Cmd struct {
@@ -44,13 +46,16 @@ func New() *Cmd {
 }
 
 func (cmd *Cmd) Init() {
+	// enable generics v2 CTI by default
+	etoken.GENERICS = etoken.GENERICS_V2_CTI
+
 	ir := fast.New()
 	ir.SetDebugger(&debug.Debugger{})
 	ir.SetInspector(&inspect.Inspector{})
 
 	g := &ir.Comp.Globals
-	g.ParserMode = 0
-	g.Options = OptDebugger | OptCtrlCEnterDebugger | OptKeepUntyped | OptTrapPanic | OptShowPrompt | OptShowEval | OptShowEvalType
+	g.ParserMode = 0 // defaults
+	g.Options |= OptDebugger | OptCtrlCEnterDebugger | OptKeepUntyped | OptTrapPanic | OptShowPrompt | OptShowEval | OptShowEvalType
 	cmd.Interp = ir
 	cmd.WriteDeclsAndStmts = false
 	cmd.OverwriteFiles = false
@@ -87,6 +92,16 @@ func (cmd *Cmd) Main(args []string) (err error) {
 			}
 		case "-f", "--force-overwrite":
 			cmd.OverwriteFiles = true
+		case "-g", "--genimport":
+			repl = false
+			o := g.Output             // make a copy
+			o.Stdout = ioutil.Discard // silence debug messages
+			o.Stderr = ioutil.Discard // silence warning and error messages
+			imp := genimport.DefaultImporter(&o)
+			err := genimport.GoGenerateMain(args[1:], imp)
+			if err != nil {
+				return err
+			}
 		case "-h", "--help":
 			return cmd.Usage()
 		case "-i", "--repl":
@@ -117,8 +132,7 @@ func (cmd *Cmd) Main(args []string) (err error) {
 		default:
 			arg := args[0]
 			if len(arg) > 0 && arg[0] == '-' {
-				fmt.Fprintf(g.Stderr, "gomacro: unrecognized option '%s'.\nTry 'gomacro --help' for more information\n", arg)
-				return nil
+				return fmt.Errorf("gomacro: unrecognized option '%s'.\nTry 'gomacro --help' for more information", arg)
 			}
 			repl = false
 			if cmd.WriteDeclsAndStmts {
@@ -148,6 +162,9 @@ func (cmd *Cmd) Usage() error {
     -c,   --collect          collect declarations and statements, to print them later
     -e,   --expr EXPR        evaluate expression
     -f,   --force-overwrite  option -w will overwrite existing files
+    -g,   --genimport [PATH] write x_package.go bindings for specified import path and exit.
+                             Use "gomacro -g ." or omit path to import the current dir.
+                             Used in "//go:generate gomacro -g ." directives.
     -h,   --help             show this help and exit
     -i,   --repl             interactive. start a REPL after evaluating expression, files and dirs.
                              default: start a REPL only if no expressions, files or dirs are specified

@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -21,27 +21,25 @@ import (
 	"go/token"
 	r "reflect"
 	"sort"
+
+	xr "github.com/cosmos72/gomacro/xreflect"
 )
 
 type selectEntry struct {
-	Dir  r.SelectDir
-	Chan func(*Env) r.Value
-	Send func(*Env) r.Value
+	Dir  xr.SelectDir
+	Chan func(*Env) xr.Value
+	Send func(*Env) xr.Value
 }
 
 func (c *Comp) Select(node *ast.SelectStmt, labels []string) {
 	if node.Body == nil || len(node.Body.List) == 0 {
 		return
 	}
-
-	var ibreak int
 	sort.Strings(labels)
-	c.Loop = &LoopInfo{
-		Break:      &ibreak,
-		ThisLabels: labels,
-	}
 
-	// unnamed bind, contains received value. Nil means nothing received
+	// unnamed bind, contains received value. xr.Value{} means nothing received
+	// note: containLocalBinds knows we create a local bind,
+	// and returns true if it encounters a non-empty SelectStmt
 	bindrecv := c.NewBind("", VarBind, c.TypeOfInterface())
 	idxrecv := bindrecv.Desc.Index()
 
@@ -52,20 +50,29 @@ func (c *Comp) Select(node *ast.SelectStmt, labels []string) {
 	defaultip := -1
 	defaultpos := token.NoPos
 
+	// restore current Comp.Loop before returning
+	defer func(loop *LoopInfo) {
+		c.Loop = loop
+	}(c.Loop)
+	c.Loop = &LoopInfo{
+		Break:      new(int),
+		ThisLabels: labels,
+	}
+
 	c.append(func(env *Env) (Stmt, *Env) {
-		cases := make([]r.SelectCase, len(entries))
+		cases := make([]xr.SelectCase, len(entries))
 		for i := range entries {
 			c := &cases[i]
 			e := &entries[i]
 			c.Dir = e.Dir
 			if e.Chan != nil {
-				c.Chan = e.Chan(env)
+				c.Chan = e.Chan(env).ReflectValue()
 				if e.Send != nil {
-					c.Send = e.Send(env)
+					c.Send = e.Send(env).ReflectValue()
 				}
 			}
 		}
-		chosen, recv, _ := r.Select(cases)
+		chosen, recv, _ := xr.Select(cases)
 		env.Vals[idxrecv] = recv
 		ip := ips[chosen]
 		env.IP = ip
@@ -91,7 +98,7 @@ func (c *Comp) Select(node *ast.SelectStmt, labels []string) {
 		}
 	}
 	// we finally know this
-	ibreak = c.Code.Len()
+	*c.Loop.Break = c.Code.Len()
 }
 
 // selectDefault compiles the default case in a switch

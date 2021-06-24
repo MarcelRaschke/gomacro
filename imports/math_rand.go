@@ -5,12 +5,13 @@ package imports
 
 import (
 	. "reflect"
-	"math/rand"
+	rand "math/rand"
 )
 
 // reflection: allow interpreted code to import "math/rand"
 func init() {
 	Packages["math/rand"] = Package{
+	Name: "rand",
 	Binds: map[string]Value{
 		"ExpFloat64":	ValueOf(rand.ExpFloat64),
 		"Float32":	ValueOf(rand.Float32),
@@ -28,6 +29,7 @@ func init() {
 		"Perm":	ValueOf(rand.Perm),
 		"Read":	ValueOf(rand.Read),
 		"Seed":	ValueOf(rand.Seed),
+		"Shuffle":	ValueOf(rand.Shuffle),
 		"Uint32":	ValueOf(rand.Uint32),
 		"Uint64":	ValueOf(rand.Uint64),
 	}, Types: map[string]Type{

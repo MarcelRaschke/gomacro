@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2018-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -21,7 +21,7 @@ import (
 	"go/token"
 	r "reflect"
 
-	mt "github.com/cosmos72/gomacro/token"
+	"github.com/cosmos72/gomacro/go/etoken"
 )
 
 // ToNode converts Ast back ast.Node, or panics on failure
@@ -107,7 +107,7 @@ func ToExpr(x Ast) ast.Expr {
 		block := &ast.BlockStmt{List: list}
 		return BlockStmtToExpr(block)
 	default:
-		errorf("unimplemented conversion from %v to ast.Expr: %v <%v>",
+		errorf("cannot convert from %v to ast.Expr: %v <%v>",
 			r.TypeOf(node), node, r.TypeOf(node))
 	}
 	return nil
@@ -127,7 +127,7 @@ func ToExprSlice(x Ast) []ast.Expr {
 		}
 		return ret
 	default:
-		errorf("unimplemented conversion from %v <%v> to []ast.Expr", x, r.TypeOf(x))
+		errorf("cannot convert from %v <%v> to []ast.Expr", x, r.TypeOf(x))
 	}
 	return nil
 }
@@ -297,5 +297,5 @@ func BlockStmtToExpr(node *ast.BlockStmt) ast.Expr {
 	// so we return a unary expression: MACRO (func() { /*block*/ })
 	typ := &ast.FuncType{Func: token.NoPos, Params: &ast.FieldList{}}
 	fun := &ast.FuncLit{Type: typ, Body: node}
-	return &ast.UnaryExpr{Op: mt.MACRO, X: fun}
+	return &ast.UnaryExpr{Op: etoken.MACRO, X: fun}
 }

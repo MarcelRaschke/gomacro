@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -33,7 +33,7 @@ func (env *Env) evalIdentifier(ident *ast.Ident) r.Value {
 
 func (env *Env) resolveIdentifier(ident *ast.Ident) (r.Value, bool) {
 	name := ident.Name
-	value := Nil
+	value := NilR
 	found := false
 	for e := env; e != nil; e = e.Outer {
 		// Debugf("evalIdentifier() looking up %#v in %#v", name, env.Binds)

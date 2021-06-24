@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2018-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -270,11 +270,12 @@ var Commands Cmds
 
 func init() {
 	Commands.m = map[byte][]Cmd{
+		'c': []Cmd{{"copyright", (*Interp).cmdCopyright, `copyright         show copyright and license`}},
 		'd': []Cmd{{"debug", (*Interp).cmdDebug, `debug EXPR        debug expression or statement interactively`}},
 		'e': []Cmd{{"env", (*Interp).cmdEnv, `env [NAME]        show available functions, variables and constants
                    in current package, or from imported package NAME`}},
 		'h': []Cmd{{"help", (*Interp).cmdHelp, `help              show this help`}},
-		'i': []Cmd{{"inspect", (*Interp).cmdInspect, `inspect EXPR      inspect expression interactively`}},
+		'i': []Cmd{{"inspect", (*Interp).cmdInspect, `inspect EXPR|TYPE inspect expression or type interactively`}},
 		'o': []Cmd{{"options", (*Interp).cmdOptions, `options [OPTS]    show or toggle interpreter options`}},
 		'p': []Cmd{{"package", (*Interp).cmdPackage, `package "PKGPATH" switch to package PKGPATH, importing it if possible`}},
 		'q': []Cmd{{"quit", (*Interp).cmdQuit, `quit              quit the interpreter`}},
@@ -332,6 +333,15 @@ func (ir *Interp) cmdEnv(arg string, opt base.CmdOpt) (string, base.CmdOpt) {
 	return "", opt
 }
 
+func (ir *Interp) cmdCopyright(arg string, opt base.CmdOpt) (string, base.CmdOpt) {
+	g := &ir.Comp.Globals
+	g.Fprintf(g.Stdout, `// Copyright (C) 2018-2020 Massimiliano Ghilardi <https://github.com/cosmos72/gomacro>
+// License MPL v2.0+: Mozilla Public License version 2.0 or later <http://mozilla.org/MPL/2.0/>
+// This is free software with ABSOLUTELY NO WARRANTY.
+`)
+	return "", opt
+}
+
 func (ir *Interp) cmdHelp(arg string, opt base.CmdOpt) (string, base.CmdOpt) {
 	Commands.ShowHelp(&ir.Comp.Globals)
 	return "", opt
@@ -353,7 +363,10 @@ func (ir *Interp) cmdOptions(arg string, opt base.CmdOpt) (string, base.CmdOpt) 
 
 	if len(arg) != 0 {
 		g.Options ^= base.ParseOptions(arg)
-
+		if g.Options&base.OptModuleImport != 0 && !base.GoModuleSupported {
+			g.Warnf("cannot enable module support: gomacro compiled with go < 1.11")
+			g.Options &^= base.OptModuleImport
+		}
 		debugdepth := 0
 		if g.Options&base.OptDebugFromReflect != 0 {
 			debugdepth = 1

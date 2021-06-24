@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -58,7 +58,7 @@ func (env *Env) EvalAst(in ast2.Ast) (r.Value, []r.Value) {
 			return ret, rets
 		}
 	case nil:
-		return None, nil
+		return NoneR, nil
 	default:
 		return env.Errorf("EvalAst(): expecting <AstWithNode> or <AstWithSlice>, found: %v <%v>",
 			in, r.TypeOf(in))
@@ -81,7 +81,7 @@ func (env *Env) EvalNode(node ast.Node) (r.Value, []r.Value) {
 		return env.Errorf("unimplemented Eval for %v <%v>", node, r.TypeOf(node))
 	}
 	// Go declarations, statements and files do not return values
-	return None, nil
+	return NoneR, nil
 }
 
 func (env *Env) EvalNode1(node ast.Node) r.Value {
@@ -108,8 +108,8 @@ func (env *Env) classicEval(form ast2.Ast) []r.Value {
 
 	// eval phase
 	if env.Options&OptMacroExpandOnly != 0 {
-		return reflect.PackValues(r.ValueOf(form.Interface()), nil)
+		return reflect.PackValuesR(r.ValueOf(form.Interface()), nil)
 	} else {
-		return reflect.PackValues(env.EvalAst(form))
+		return reflect.PackValuesR(env.EvalAst(form))
 	}
 }

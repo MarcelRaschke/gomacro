@@ -1,7 +1,7 @@
 /*
  * gomacro - A Go interpreter with Lisp-like macros
  *
- * Copyright (C) 2017-2018 Massimiliano Ghilardi
+ * Copyright (C) 2017-2019 Massimiliano Ghilardi
  *
  *     This Source Code Form is subject to the terms of the Mozilla Public
  *     License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -24,8 +24,9 @@ import (
 	"sort"
 	"time"
 
-	. "github.com/cosmos72/gomacro/base"
+	"github.com/cosmos72/gomacro/base"
 	"github.com/cosmos72/gomacro/base/untyped"
+	xr "github.com/cosmos72/gomacro/xreflect"
 )
 
 type caseEntry struct {
@@ -84,7 +85,7 @@ func (c *Comp) Switch(node *ast.SwitchStmt, labels []string) {
 		// and returns an expression that retrieves it
 		tag = c.switchTag(tag)
 
-		if c.Options&OptDebugSleepOnSwitch != 0 {
+		if c.Options&base.OptDebugSleepOnSwitch != 0 {
 			c.append(func(env *Env) (Stmt, *Env) {
 				c.Debugf("start sleeping on switch, env = %p", env)
 				time.Sleep(time.Second / 30)
@@ -176,7 +177,7 @@ func (c *Comp) switchCase(node *ast.CaseClause, tagnode ast.Expr, tag *Expr, can
 			if tag.Const() {
 				// constant propagation
 				flag := cmp.EvalConst(COptDefaults)
-				if r.ValueOf(flag).Bool() {
+				if xr.ValueOf(flag).Bool() {
 					sometrue = true
 					break // always matches, no need to check further expressions
 				} else {
