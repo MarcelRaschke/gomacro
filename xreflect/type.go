@@ -215,6 +215,10 @@ func (t *xtype) Named() bool {
 func (t *xtype) Name() string {
 	if t != nil {
 		switch gtype := t.gtype.(type) {
+		/* gomacro/go/types.Alias does not exist yet
+		case *types.Alias:
+			return gtype.Obj().Name()
+		*/
 		case *types.Basic:
 			return gtype.Name()
 		case *types.Named:

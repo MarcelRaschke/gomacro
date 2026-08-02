@@ -150,6 +150,12 @@ func matchFieldByName(qname QName, gfield *types.Var) bool {
 			gtype = gptr.Elem()
 		}
 		switch gtype := gtype.(type) {
+		/* gomacro/go/types.Alias does not exist yet
+		case *types.Alias:
+			// gtype.Obj().Pkg() and gfield.Pkg() should be identical for *unexported* fields
+			// (they are ignored for exported fields)
+			return qname == QNameGo2(gtype.Obj().Name(), gfield.Pkg())
+		*/
 		case *types.Basic:
 			// is it possible to embed basic types?
 			// yes, and they work as unexported embedded fields,

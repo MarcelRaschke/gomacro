@@ -4,8 +4,8 @@
 package imports
 
 import (
-	. "reflect"
 	types "go/types"
+	. "reflect"
 )
 
 // reflection: allow interpreted code to import "go/types"
@@ -115,6 +115,7 @@ func init() {
 			"WriteType":	ValueOf(types.WriteType),
 		}, Types: map[string]Type{
 			"ArgumentError":	TypeOf((*types.ArgumentError)(nil)).Elem(),
+			"Alias":	TypeOf((*types.Alias)(nil)).Elem(),
 			"Array":	TypeOf((*types.Array)(nil)).Elem(),
 			"Basic":	TypeOf((*types.Basic)(nil)).Elem(),
 			"BasicInfo":	TypeOf((*types.BasicInfo)(nil)).Elem(),

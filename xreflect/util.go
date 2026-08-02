@@ -80,6 +80,10 @@ func gtypeToKind(t *xtype, gtype types.Type) r.Kind {
 	gtype = gtype.Underlying()
 	var kind r.Kind
 	switch gtype := gtype.(type) {
+	/* gomacro/go/types.Alias does not exist yet
+	case *types.Alias:
+		kind = gtypeToKind(t, gtype.Rhs())
+	*/
 	case *types.Array:
 		kind = r.Array
 	case *types.Basic:

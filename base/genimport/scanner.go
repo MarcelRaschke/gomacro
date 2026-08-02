@@ -67,6 +67,9 @@ func traverseType(o *Output, name string, in types.Type, visitor TypeVisitor) {
 			return
 		}
 		switch t := in.(type) {
+		case *types.Alias:
+			in = t.Rhs()
+			continue
 		case *types.Basic:
 			break
 		case *types.Named:
@@ -154,6 +157,8 @@ func (ie *importExtractor) visitType(t types.Type) bool {
 		return false
 	}
 	switch t := t.(type) {
+	case *types.Alias:
+		return ie.visitType(t.Rhs())
 	case *types.Basic:
 		if t.Kind() == types.UnsafePointer {
 			ie.imports["unsafe"] = true
@@ -218,6 +223,8 @@ func tupleExported(tuple *types.Tuple) bool {
 func typeExported(typ types.Type) bool {
 	for typ != nil {
 		switch t := typ.(type) {
+		case *types.Alias:
+			return t.Obj().Pkg() == nil || t.Obj().Exported()
 		case *types.Array:
 			typ = t.Elem()
 		case *types.Basic:

@@ -131,6 +131,8 @@ func (c *Converter) typ(g types.Type) Type {
 		return t
 	}
 	switch g := g.(type) {
+	case *types.Alias:
+		t = c.typ(g.Rhs()) // requires Go 1.23.0
 	case *types.Array:
 		elem := c.typ(g.Elem())
 		t = NewArray(elem, g.Len())
