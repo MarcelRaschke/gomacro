@@ -115,21 +115,6 @@ func (sym *Symbol) Expr(depth int, g *CompGlobals) *Expr {
 	return nil
 }
 
-// upn must be >= 3
-func outerEnv3(env *Env, upn int) *Env {
-	for ; upn >= 3; upn -= 3 {
-		env = env.Outer.Outer.Outer
-	}
-	switch upn {
-	case 2:
-		env = env.Outer
-		fallthrough
-	case 1:
-		env = env.Outer
-	}
-	return env
-}
-
 // return an expression that will read Bind value at runtime
 func (bind *Bind) expr(g *CompGlobals) *Expr {
 	idx := bind.Desc.Index()
@@ -961,7 +946,7 @@ func (sym *Symbol) intExpr(depth int, g *CompGlobals) *Expr {
 		case xr.Uint64:
 			fun = func(env *Env) uint64 {
 				env = env.Up(upn)
-				return env.Outer.Outer.Ints[idx]
+				return env.Ints[idx]
 			}
 		case xr.Uintptr:
 			fun = func(env *Env) uintptr {
